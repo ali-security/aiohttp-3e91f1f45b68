@@ -12,6 +12,7 @@ import pytest
 from re_assert import Matches
 
 from aiohttp import streams
+from aiohttp.http_exceptions import LineTooLong, LineTooLongValueError
 
 DATA = b"line1\nline2\nline3\n"
 
@@ -325,12 +326,26 @@ class TestStreamReader:
         stream.feed_data(b"li")
         stream.feed_data(b"ne1\nline2\n")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(LineTooLong):
             await stream.readline()
         # The buffer should contain the remaining data after exception
         stream.feed_eof()
         data = await stream.read()
         assert b"line2\n" == data
+
+    async def test_readline_limit_valueerror_compat(self) -> None:
+        # CVE-2026-34516 switched the oversize error from the historical
+        # ValueError("Chunk too big") to the more descriptive LineTooLong.
+        # LineTooLongValueError is both, so pre-seal `except ValueError`
+        # handlers around readline()/readuntil() keep working (drop-in).
+        stream = self._make_one(limit=2)
+        stream.feed_data(b"li")
+        stream.feed_data(b"ne1\nline2\n")
+
+        with pytest.raises(ValueError) as exc_info:
+            await stream.readline()
+        assert isinstance(exc_info.value, LineTooLong)
+        assert isinstance(exc_info.value, LineTooLongValueError)
 
     async def test_readline_limit(self) -> None:
         loop = asyncio.get_event_loop()
@@ -346,7 +361,7 @@ class TestStreamReader:
 
         loop.call_soon(cb)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(LineTooLong):
             await stream.readline()
         data = await stream.read()
         assert b"chunk3\n" == data
@@ -436,7 +451,7 @@ class TestStreamReader:
         stream.feed_data(b"li")
         stream.feed_data(b"ne1" + separator + b"line2" + separator)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(LineTooLong):
             await stream.readuntil(separator)
         # The buffer should contain the remaining data after exception
         stream.feed_eof()
@@ -458,7 +473,7 @@ class TestStreamReader:
 
         loop.call_soon(cb)
 
-        with pytest.raises(ValueError, match="Chunk too big"):
+        with pytest.raises(LineTooLong):
             await stream.readuntil(separator)
         data = await stream.read()
         assert b"chunk3#" == data

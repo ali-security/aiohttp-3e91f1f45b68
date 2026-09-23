@@ -85,6 +85,18 @@ class LineTooLong(BadHttpMessage):
         self.args = (line, limit, actual_size)
 
 
+class LineTooLongValueError(LineTooLong, ValueError):
+    """A :class:`LineTooLong` that is also a :class:`ValueError`.
+
+    ``StreamReader.readline``/``readuntil`` historically raised
+    ``ValueError("Chunk too big")`` on oversize input; the CVE-2026-34516 fix
+    switched them to the more descriptive :class:`LineTooLong`. Raising this
+    subclass preserves drop-in compatibility for callers that still catch
+    ``ValueError`` around those public reads, while remaining a
+    :class:`LineTooLong`/:class:`BadHttpMessage` for everyone else.
+    """
+
+
 class InvalidHeader(BadHttpMessage):
     def __init__(self, hdr: Union[bytes, str]) -> None:
         hdr_s = hdr.decode(errors="backslashreplace") if isinstance(hdr, bytes) else hdr
